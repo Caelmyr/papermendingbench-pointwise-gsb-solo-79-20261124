@@ -392,12 +392,34 @@ function measurement() {
     fields.replaceChildren();
     if (spec.paired) fields.append(field("Comparison photograph", comparison));
     function addMarks(specification, photo) {
+      const slotNames = { band: "Border band", centre: "Centre field", set_a: "Set A windows", set_b: "Set B windows" };
       for (const [key, type] of Object.entries(specification)) {
+        const label = slotNames[key] || displayName(key);
         const entries = state.run.marks.filter((mark) => mark.purpose === type && mark.photo === photo);
+        if (!entries.length) {
+          fields.append(field(label + " / " + state.config.marks[type],
+            element("p", "No " + state.config.marks[type].toLowerCase() + " mark on this photograph.")));
+          continue;
+        }
+        if (spec.multiple) {
+          const editor = element("select");
+          editor.name = key;
+          editor.multiple = true;
+          editor.size = Math.min(6, Math.max(2, entries.length));
+          editor.required = true;
+          for (const mark of entries) {
+            const option = element("option", mark.title);
+            option.value = mark.id;
+            editor.append(option);
+          }
+          controls[key] = editor;
+          fields.append(field(label + " / " + state.config.marks[type] + " (choose one or more)", editor));
+          continue;
+        }
         const editor = select(key, entries.map((mark) => [mark.id, mark.title]));
         editor.required = true;
         controls[key] = editor;
-        fields.append(field(displayName(key) + " / " + state.config.marks[type], editor));
+        fields.append(field(label + " / " + state.config.marks[type], editor));
       }
     }
     addMarks(spec.reference, source.id);
@@ -419,7 +441,8 @@ function measurement() {
     const result = await api(runURL() + "/readings", "POST", {
       revision: state.run.revision, mode: operation.value, photo: source.id,
       other: comparison.value,
-      marks: Object.fromEntries(Object.entries(controls).map(([key, control]) => [key, control.value])),
+      marks: Object.fromEntries(Object.entries(controls).map(([key, control]) => [key,
+        control.multiple ? [...control.selectedOptions].map((option) => option.value) : control.value])),
       options: Object.fromEntries(Object.entries(options).map(([key, control]) => [key, control.valueAsNumber])),
     });
     replaceRun(result.run);

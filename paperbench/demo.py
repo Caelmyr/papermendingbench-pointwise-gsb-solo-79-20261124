@@ -33,6 +33,25 @@ LINES = (
     ("Across blue ink", "ink", [(252, 196), (244, 346)]),
     ("Center fold", "fold", [(350, 206), (515, 431)]),
 )
+# Two disjoint, non-overlapping strata: a four-sided margin band and the centre field.
+FOXING_BAND = (
+    ("Foxing band left margin", (118, 162, 168, 432)),
+    ("Foxing band right margin", (700, 162, 748, 432)),
+    ("Foxing band head", (168, 105, 700, 162)),
+    ("Foxing band tail", (168, 432, 700, 485)),
+)
+FOXING_CENTRE = ("Foxing centre field", (168, 162, 700, 432))
+# Set A sees more total paper; Set B gives the smaller margin band more observed
+# sample. In Set A two centre windows meet edge to edge, so a stain on their
+# shared edge must still count once. Windows inside a set never overlap.
+FOXING_WINDOWS = (
+    ("Set A windows", (("Set A left centre window", (320, 180, 440, 300)),
+                       ("Set A right centre window", (440, 180, 550, 300)),
+                       ("Set A head window", (250, 105, 420, 162)))),
+    ("Set B windows", (("Set B left margin window", (118, 162, 168, 432)),
+                       ("Set B right margin window", (700, 162, 748, 432)),
+                       ("Set B centre window", (400, 200, 500, 296)))),
+)
 
 
 def normalized(points):
@@ -115,6 +134,11 @@ def create(library):
         captures.append(capture)
         entries = [(name, purpose, polygon(box)) for name, purpose, box in REGIONS]
         entries.extend((name, purpose, normalized(points)) for name, purpose, points in LINES)
+        if role == "face":
+            entries.extend((name, "band", polygon(box)) for name, box in FOXING_BAND)
+            entries.append((FOXING_CENTRE[0], "centre", polygon(FOXING_CENTRE[1])))
+            for _set_title, windows in FOXING_WINDOWS:
+                entries.extend((name, "window", polygon(box)) for name, box in windows)
         marker_points = normalized([(x + (idx + 1 if role != "face" else 0), y)
                                     for idx, (x, y) in enumerate(LANDMARKS)])
         entries.append(("Matching registration points", "register", marker_points))

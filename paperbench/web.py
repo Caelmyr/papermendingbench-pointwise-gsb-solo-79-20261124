@@ -17,6 +17,8 @@ MEASUREMENTS = {
     "fiber-balance": (analysis.fiber_balance, {"region": "fiber"}, {}),
     "ink-spread": (analysis.ink_spread, {"line": "ink"}, {}),
     "foxing-map": (analysis.foxing_map, {"region": "stain"}, {}),
+    "foxing-sample": (analysis.foxing_sample,
+                      {"band": "band", "centre": "centre", "set_a": "window", "set_b": "window"}, {}),
     "paper-tone": (analysis.paper_tone, {"region": "inspect"}, {}),
     "landmark-offset": (analysis.landmark_offset, {"reference": "register"}, {"comparison": "register"}),
     "paired-support": (analysis.paired_support, {"region": "inspect"}, {}),
@@ -25,6 +27,7 @@ MEASUREMENTS = {
     "fold-ligaments": (analysis.fold_ligaments, {"region": "inspect", "fold": "fold"}, {}),
 }
 PAIRED = {"landmark-offset", "paired-support", "transmission-change"}
+MULTI_MARK = {"foxing-sample"}
 OPTIONS = {
     "sheet-edge": {"luma": ["Sheet luminance", .47, .01]},
     "loss-map": {"transmission": ["Loss transmission", .78, .01],
@@ -33,6 +36,10 @@ OPTIONS = {
     "patch-coverage": {"transmission": ["Loss transmission", .78, .01]},
     "ink-spread": {"chroma": ["Ink chroma distance", .08, .01]},
     "foxing-map": {"yellow": ["Local yellow excess", .035, .005]},
+    "foxing-sample": {"budget_mm2": ["Sampling area cap (mm²)", 2600, 10],
+                      "band_min_mm2": ["Border band observed minimum (mm²)", 500, 10],
+                      "centre_min_mm2": ["Centre observed minimum (mm²)", 500, 10],
+                      "yellow": ["Local yellow excess", .035, .005]},
     "transmission-change": {"difference": ["Transmission difference", .12, .01]},
     "fold-ligaments": {"transmission": ["Open fold transmission", .76, .01],
                        "depth_mm": ["Fold evidence depth (mm)", 3, .1]},
@@ -58,10 +65,23 @@ def measure(library, run, data):
 
     def read_marks(assigned, capture):
         for slot, purpose in assigned.items():
-            mark = locate(run["marks"], marked.get(slot), MARKS[purpose])
-            if mark["photo"] != capture["id"] or mark["purpose"] != purpose:
-                raise Invalid(f"Select a {MARKS[purpose].lower()} mark from the specified photograph.")
-            selected[slot] = mark
+            if mode in MULTI_MARK:
+                raw = marked.get(slot)
+                keys = raw if isinstance(raw, list) else [raw]
+                if not keys or len(keys) > 32:
+                    raise Invalid(f"Select at least one {MARKS[purpose].lower()} mark.")
+                selected[slot] = []
+                for key in keys:
+                    mark = locate(run["marks"], key, MARKS[purpose])
+                    if mark["photo"] != capture["id"] or mark["purpose"] != purpose:
+                        raise Invalid(f"Select a {MARKS[purpose].lower()} mark from the specified photograph.")
+                    if mark not in selected[slot]:
+                        selected[slot].append(mark)
+            else:
+                mark = locate(run["marks"], marked.get(slot), MARKS[purpose])
+                if mark["photo"] != capture["id"] or mark["purpose"] != purpose:
+                    raise Invalid(f"Select a {MARKS[purpose].lower()} mark from the specified photograph.")
+                selected[slot] = mark
 
     read_marks(source_roles, source)
     used = [source]
@@ -100,7 +120,7 @@ def install(app, root):
         for mode, (title, help_text) in READINGS.items():
             _, source_roles, other_roles = MEASUREMENTS[mode]
             definitions[mode] = {"title": title, "help": help_text, "reference": source_roles, "comparison": other_roles,
-                                 "paired": mode in PAIRED, "options": OPTIONS.get(mode, {})}
+                                 "paired": mode in PAIRED, "multiple": mode in MULTI_MARK, "options": OPTIONS.get(mode, {})}
         return jsonify(readings=definitions, marks=MARKS, roles=ROLES)
 
     @api.get("/runs")
