@@ -1,0 +1,4 @@
+.paperbench/
+.venv/
+__pycache__/
+*.pyc
