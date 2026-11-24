@@ -27,7 +27,10 @@ function displayName(value) {
 }
 
 function display(value) {
-  return value == null ? "—" : Array.isArray(value) ? value.join(" · ") : String(value);
+  if (value == null) return "—";
+  if (Array.isArray(value)) return value.join(" · ");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
 }
 
 async function api(url, method = "GET", payload) {
@@ -375,7 +378,9 @@ function showMark(mark) {
 
 function measurement() {
   const available = state.config.readings;
-  const operation = select("mode", Object.entries(available).map(([key, value]) => [key, value.title]));
+  const operation = select("mode", Object.entries(available)
+    .filter(([, value]) => !value.hidden)
+    .map(([key, value]) => [key, value.title]));
   const fields = grid();
   const hint = element("p");
   const source = activePhoto();
@@ -407,6 +412,14 @@ function measurement() {
       options[key] = value;
       fields.append(field(name, value));
     }
+    if (operation.value === "fold-alignment") {
+      const preference = select("prefer", [
+        ["accuracy", "Prefer tighter landmark residuals"],
+        ["common", "Prefer more deduplicated common evidence"],
+      ]);
+      options.prefer = preference;
+      fields.append(field("When both plans qualify", preference));
+    }
   }
 
   operation.addEventListener("change", rebuild);
@@ -420,7 +433,9 @@ function measurement() {
       revision: state.run.revision, mode: operation.value, photo: source.id,
       other: comparison.value,
       marks: Object.fromEntries(Object.entries(controls).map(([key, control]) => [key, control.value])),
-      options: Object.fromEntries(Object.entries(options).map(([key, control]) => [key, control.valueAsNumber])),
+      options: Object.fromEntries(Object.entries(options).map(([key, control]) => [
+        key, control.type === "number" ? control.valueAsNumber : control.value,
+      ])),
     });
     replaceRun(result.run);
     openReading(result.reading);

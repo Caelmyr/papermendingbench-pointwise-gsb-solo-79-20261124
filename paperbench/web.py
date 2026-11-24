@@ -19,12 +19,25 @@ MEASUREMENTS = {
     "foxing-map": (analysis.foxing_map, {"region": "stain"}, {}),
     "paper-tone": (analysis.paper_tone, {"region": "inspect"}, {}),
     "landmark-offset": (analysis.landmark_offset, {"reference": "register"}, {"comparison": "register"}),
+    "fold-alignment": (analysis.fold_alignment,
+                       {"region": "inspect", "fold": "fold", "reference": "register"},
+                       {"comparison": "register"}),
     "paired-support": (analysis.paired_support, {"region": "inspect"}, {}),
     "transmission-change": (analysis.transmission_difference, {"region": "inspect"}, {}),
     "watermark-contrast": (analysis.watermark_contrast, {"watermark": "watermark", "reference": "control"}, {}),
     "fold-ligaments": (analysis.fold_ligaments, {"region": "inspect", "fold": "fold"}, {}),
 }
-PAIRED = {"landmark-offset", "paired-support", "transmission-change"}
+PAIRED = {"landmark-offset", "paired-support", "transmission-change", "fold-alignment"}
+PAIRED.update(key for key in analysis.ALIGNMENT_MODE_ALIASES if key != "fold-alignment")
+for alias in analysis.ALIGNMENT_MODE_ALIASES:
+    MEASUREMENTS.setdefault(alias, MEASUREMENTS["fold-alignment"])
+HIDDEN_MODES = set(analysis.ALIGNMENT_MODE_ALIASES) - {"fold-alignment"}
+for alias in HIDDEN_MODES:
+    READINGS[alias] = READINGS["fold-alignment"]
+OPTIONAL_ROLE_SLOTS = {
+    mode: {"region", "fold", "reference", "comparison", "other_fold"}
+    for mode in analysis.ALIGNMENT_MODE_ALIASES
+}
 OPTIONS = {
     "sheet-edge": {"luma": ["Sheet luminance", .47, .01]},
     "loss-map": {"transmission": ["Loss transmission", .78, .01],
@@ -34,6 +47,11 @@ OPTIONS = {
     "ink-spread": {"chroma": ["Ink chroma distance", .08, .01]},
     "foxing-map": {"yellow": ["Local yellow excess", .035, .005]},
     "transmission-change": {"difference": ["Transmission difference", .12, .01]},
+    "fold-alignment": {
+        "max_residual_mm": ["Landmark residual cap (mm)", 1, .05],
+        "min_common_mm2": ["Minimum deduplicated common area (mm²)", 50, 10],
+        "difference": ["Transmission difference", .12, .01],
+    },
     "fold-ligaments": {"transmission": ["Open fold transmission", .76, .01],
                        "depth_mm": ["Fold evidence depth (mm)", 3, .1]},
 }
@@ -55,23 +73,54 @@ def measure(library, run, data):
     options = obj(data.get("options", {}))
     marked = obj(data.get("marks", {}))
     selected = {}
-
-    def read_marks(assigned, capture):
-        for slot, purpose in assigned.items():
-            mark = locate(run["marks"], marked.get(slot), MARKS[purpose])
-            if mark["photo"] != capture["id"] or mark["purpose"] != purpose:
-                raise Invalid(f"Select a {MARKS[purpose].lower()} mark from the specified photograph.")
-            selected[slot] = mark
-
-    read_marks(source_roles, source)
-    used = [source]
+    other = None
+    other_frame = None
     if mode in PAIRED:
         other = locate(run["photos"], data.get("other"), "The comparison photograph")
         if other["id"] == source["id"]:
             raise Invalid("Choose a different comparison photograph.")
         other_frame = sample_frame(library, run, other)
+    allowed_photo_ids = {source["id"], *({other["id"]} if other else set())}
+
+    def read_marks(assigned, capture):
+        optional = OPTIONAL_ROLE_SLOTS.get(mode, set())
+        for slot, purpose in assigned.items():
+            if slot in optional and marked.get(slot) is None:
+                continue
+            mark = locate(run["marks"], marked.get(slot), MARKS[purpose])
+            cross_fold = (mode in analysis.ALIGNMENT_MODE_ALIASES and slot == "fold"
+                          and other is not None and mark["photo"] == other["id"])
+            if mark["purpose"] != purpose or (mark["photo"] != capture["id"] and not cross_fold):
+                raise Invalid(f"Select a {MARKS[purpose].lower()} mark from the specified photograph.")
+            selected[slot] = mark
+            if cross_fold:
+                selected.setdefault("other_fold", mark)
+
+    read_marks(source_roles, source)
+    used = [source]
+    if other is not None:
         read_marks(other_roles, other)
         used.append(other)
+
+    def resolve_extra_mark(value):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            mark = locate(run["marks"], value, "mark")
+            if mark["photo"] not in allowed_photo_ids:
+                raise Invalid("Select marks from the two photographs used by this reading.")
+            return mark
+        if isinstance(value, list):
+            return [resolve_extra_mark(item) for item in value]
+        if isinstance(value, dict):
+            return value
+        raise Invalid("Mark selections must be mark identifiers or mark definitions.")
+
+    for slot, value in marked.items():
+        if slot not in selected:
+            selected[slot] = resolve_extra_mark(value)
+
+    if other is not None:
         summary, rows, pixels = work(source_frame, other_frame, selected, options)
     else:
         summary, rows, pixels = work(source_frame, selected, options)
@@ -100,7 +149,8 @@ def install(app, root):
         for mode, (title, help_text) in READINGS.items():
             _, source_roles, other_roles = MEASUREMENTS[mode]
             definitions[mode] = {"title": title, "help": help_text, "reference": source_roles, "comparison": other_roles,
-                                 "paired": mode in PAIRED, "options": OPTIONS.get(mode, {})}
+                                 "paired": mode in PAIRED, "hidden": mode in HIDDEN_MODES,
+                                 "options": OPTIONS.get(mode, OPTIONS["fold-alignment"] if mode in HIDDEN_MODES else {})}
         return jsonify(readings=definitions, marks=MARKS, roles=ROLES)
 
     @api.get("/runs")

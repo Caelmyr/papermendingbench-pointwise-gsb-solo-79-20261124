@@ -31,6 +31,7 @@ READINGS = {
     "foxing-map": ("Foxing map", "Locate local discoloration with a stronger yellow component."),
     "paper-tone": ("Paper tone", "Read Lab tone and variation in a marked sheet patch."),
     "landmark-offset": ("Paper landmark offsets", "Read residual shifts between ordered landmark pairs."),
+    "fold-alignment": ("Fold alignment: whole or split-side transmission", "Compare one whole-sheet translation with separate translations on the two fold banks, then read aligned transmission changes."),
     "paired-support": ("Paired paper visibility", "Separate joint visibility, single-photo visibility, and unseen material."),
     "transmission-change": ("Transmission change", "Read signed brightness differences in mutually visible paper."),
     "watermark-contrast": ("Watermark contrast", "Read transmitted contrast against nearby unmarked stock."),
